@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TG Brick Breaker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--tg-theme-secondary-bg-color, #111);
+            color: var(--tg-theme-text-color, #fff);
+            font-family: sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #gameCanvas {
+            background: #222;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            max-width: 100%;
+            max-height: 80vh;
+        }
+        .ui-panel {
+            margin-top: 15px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        button {
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            padding: 12px 20px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="360" height="480"></canvas>
+    
+    <div class="ui-panel">
+        <button id="closeBtn" style="display:none;">Submit Score & Close</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const closeBtn = document.getElementById("closeBtn");
+
+        // Game state variables
+        let score = 0;
+        let lives = 3;
+        let gameOver = false;
+
+        // Paddle settings
+        const paddleHeight = 12;
+        const paddleWidth = 75;
+        let paddleX = (canvas.width - paddleWidth) / 2;
+
+        // Ball settings
+        let x = canvas.width / 2;
+        let y = canvas.height - 30;
+        let dx = 3;
+        let dy = -3;
+        const ballRadius = 8;
+
+        // Brick grid config
+        const brickRowCount = 4;
+        const brickColumnCount = 5;
+        const brickWidth = 60;
+        const brickHeight = 18;
+        const brickPadding = 6;
+        const brickOffsetTop = 40;
+        const brickOffsetLeft = 18;
+
+        // Generate brick layout
+        const bricks = [];
+        for (let c = 0; c < brickColumnCount; c++) {
+            bricks[c] = [];
+            for (let r = 0; r < brickRowCount; r++) {
+                bricks[c][r] = { x: 0, y: 0, status: 1 };
+            }
+        }
+
+        // Control listeners (Touch interface for Telegram mobile)
+        canvas.addEventListener("touchmove", (e) => {
+            const relativeX = e.touches[0].clientX - canvas.offsetLeft;
+            if (relativeX > 0 && relativeX < canvas.width) {
+                paddleX = relativeX - paddleWidth / 2;
+            }
+            e.preventDefault();
+        }, { passive: false });
+
+        // Backup Mouse support for Desktop users
+        canvas.addEventListener("mousemove", (e) => {
+            const relativeX = e.clientX - canvas.getBoundingClientRect().left;
+            if (relativeX > 0 && relativeX < canvas.width) {
+                paddleX = relativeX - paddleWidth / 2;
+            }
+        });
+
+        // Collision logic
+        function collisionDetection() {
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    let b = bricks[c][r];
+                    if (b.status === 1) {
+                        if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+                            dy = -dy;
+                            b.status = 0;
+                            score += 10;
+                            if (score === brickRowCount * brickColumnCount * 10) {
+                                handleEndGame(true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Render functions
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+            ctx.fillStyle = tg.themeParams.button_color || "#2481cc";
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawPaddle() {
+            ctx.beginPath();
+            ctx.rect(paddleX, canvas.height - paddleHeight - 10, paddleWidth, paddleHeight);
+            ctx.fillStyle = "#fff";
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawBricks() {
+            for (let c = 0; c < brickColumnCount; c++) {
+                for (let r = 0; r < brickRowCount; r++) {
+                    if (bricks[c][r].status === 1) {
+                        const brickX = c * (brickWidth + brickPadding) + brickOffsetLeft;
+                        const brickY = r * (brickHeight + brickPadding) + brickOffsetTop;
+                        bricks[c][r].x = brickX;
+                        bricks[c][r].y = brickY;
+                        ctx.beginPath();
+                        ctx.rect(brickX, brickY, brickWidth, brickHeight);
+                        ctx.fillStyle = `hsl(${r * 45 + 200}, 70%, 60%)`;
+                        ctx.fill();
+                        ctx.closePath();
+                    }
+                }
+            }
+        }
+
+        function drawHUD() {
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = tg.themeParams.text_color || "#fff";
+            ctx.fillText(`Score: ${score}`, 15, 25);
+            ctx.fillText(`Lives: ${lives}`, canvas.width - 75, 25);
+        }
+
+        function handleEndGame(isWin) {
+            gameOver = true;
+            closeBtn.style.display = "block";
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "24px sans-serif";
+            ctx.fillStyle = isWin ? "#4caf50" : "#f44336";
+            ctx.textAlign = "center";
+            ctx.fillText(isWin ? "YOU WIN!" : "GAME OVER", canvas.width / 2, canvas.height / 2 - 20);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+        }
+
+        closeBtn.addEventListener("click", () => {
+            // Package score payload back to Telegram chat bot
+            const dataPayload = JSON.stringify({ action: "game_over", finalScore: score });
+            tg.sendData(dataPayload);
+            tg.close();
+        });
+
+        // Master Game Loop
+        function draw() {
+            if (gameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBricks();
+            drawBall();
+            drawPaddle();
+            drawHUD();
+            collisionDetection();
+
+            // Wall bounces (Left/Right)
+            if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) {
+                dx = -dx;
+            }
+            // Ceiling bounce
+            if (y + dy < ballRadius) {
+                dy = -dy;
+            } 
+            // Bottom edge tracking
+            else if (y + dy > canvas.height - ballRadius - 10) {
+                // Check if hitting the paddle
+                if (x > paddleX && x < paddleX + paddleWidth) {
+                    dy = -dy;
+                    // Add slight angle adjustments based on where the ball hits the paddle
+                    dx = 8 * ((x - (paddleX + paddleWidth / 2)) / paddleWidth);
+                } else {
+                    lives--;
+                    if (!lives) {
+                        handleEndGame(false);
+                    } else {
+                        // Reset positions for next life
+                        x = canvas.width / 2;
+                        y = canvas.height - 30;
+                        dx = 3;
+                        dy = -3;
+                        paddleX = (canvas.width - paddleWidth) / 2;
+                    }
+                }
+            }
+
+            x += dx;
+            y += dy;
+            requestAnimationFrame(draw);
+        }
+
+        // Kick off the loop
+        draw();
+    </script>
+</body>
+</html>
